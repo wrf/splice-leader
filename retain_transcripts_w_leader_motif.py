@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # created by WRF 2025-12-02
+# v1.1 2026-05-05 gzip output
 
-"""retain_transcripts_w_leader_motif.py v1.0  last modified 2025-12-02
+"""retain_transcripts_w_leader_motif.py v1.1  last modified 2026-05-05
 
   Filter a FASTA file by motifs at the start of each sequence.
 
@@ -41,7 +42,14 @@ def main():
 	seqcount = 0
 	retained_count = defaultdict(int)
 
-	with open(args.output, "w") as fout:
+	if args.output.endswith(".gz"): # determine gzip output, can be much slower
+		open_output = gzip.open(args.output, "wt")  # text mode
+		sys.stderr.write( "# Writing output to {} as gzip\n".format( args.output ) )
+	else:
+		open_output = open(args.output, "w")
+		sys.stderr.write( "# Writing output to {}\n".format( args.output ) )
+
+	with open_output as fout:
 		# Parse records with SeqIO
 		sys.stderr.write( "# Reading sequences from {}  {}\n".format( args.input, time.asctime() ) )
 		if args.input.rsplit('.',1)[-1]=="gz":
