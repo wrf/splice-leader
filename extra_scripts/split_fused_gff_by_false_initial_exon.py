@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
+# v1.1 fix long first exon bug 2026-05-14
 
 """
-split_fused_gff_by_false_initial_exon.py  last modified 2026-05-11
+split_fused_gff_by_false_initial_exon.py  last modified 2026-05-14
 
-~/git/splice-leader/extra_scripts/split_fused_gff_by_false_initial_exon.py --gff Hcv1av93.gff --splits-table Hcv1av93_proposed_clusters.tsv --motif-summary Hcv1av93_splits_summary.tsv --out-gff Hcv1av93.leader_removed.gff --repair-summary Hcv1av93.leader_removed.repair_summary.tsv
+~/git/splice-leader/extra_scripts/split_fused_gff_by_false_initial_exon.py --gff Hcv1av93_v10.gff --splits-table Hcv1av93_v10_proposed_clusters.tsv --motif-summary Hcv1av93_v10_splits_summary.tsv --out-gff Hcv1av93_v10.leader_removed.gff --repair-summary Hcv1av93_v10.leader_removed.repair_summary.tsv
 """
+
+# ~/git/splice-leader/extra_scripts/split_fused_gff_by_false_initial_exon.py --gff Hcv1av93.gff --splits-table Hcv1av93_proposed_clusters.tsv --motif-summary Hcv1av93_splits_summary.tsv --out-gff Hcv1av93.leader_removed.gff --repair-summary Hcv1av93.leader_removed.repair_summary.tsv
+
 
 import sys
 import argparse
@@ -147,26 +151,35 @@ def load_motif_summary(path):
 	Required columns:
 	  transcript_id
 	  false_first_exon
-	"""
-	false_exon_by_tx = {}
+	  remove_first_exon
 
-	print(f"Reading first-exon leader transcripts from {path}", file=sys.stderr )
+	Only rows with remove_first_exon=yes are used for deletion.
+	"""
+	linecounter = 0
+	false_exon_by_tx = {}
+	print("Reading motif matches table from {}".format( path ), file=sys.stderr )
 	with open(path) as fh:
 		header = next(fh).rstrip("\n").split("\t")
 		idx_tx = header.index("transcript_id")
 		idx_fe = header.index("false_first_exon")
+		idx_remove = header.index("remove_first_exon")
 
 		for line in fh:
+			linecounter += 1
 			if not line.strip():
 				continue
 
 			fields = line.rstrip("\n").split("\t")
+
+			if fields[idx_remove] != "yes":
+				continue
+
 			tx_id = fields[idx_tx]
 			fe = fields[idx_fe]
 
 			if fe:
 				false_exon_by_tx[tx_id] = parse_false_exon_string(fe)
-	print("Found {} leader sequence exons".format( len(false_exon_by_tx) ), file=sys.stderr )
+	print("Found {} motifs, and {} flagged for removal".format( linecounter, len(false_exon_by_tx) ), file=sys.stderr )
 	return false_exon_by_tx
 
 ##############################
