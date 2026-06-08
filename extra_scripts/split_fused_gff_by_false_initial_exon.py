@@ -320,6 +320,26 @@ def write_repaired_gff(
 	output_gff,
 ):
 	split_gene_ids = set(splits)
+	written_split_genes = set()
+
+	def write_split_gene(out, old_gene_id, new_gene_id):
+		old_gene = genes[old_gene_id]
+		span = gene_spans[new_gene_id]
+
+		new_attrs = dict(old_gene["attrs"])
+		new_attrs["ID"] = new_gene_id
+		new_attrs["Name"] = new_gene_id
+		new_attrs["Original_ID"] = old_gene_id
+
+		parts = list(old_gene["parts"])
+		parts[0] = span["seqid"]
+		parts[3] = str(span["start"])
+		parts[4] = str(span["end"])
+		parts[6] = span["strand"]
+		parts[8] = format_attrs(new_attrs)
+
+		out.write("\t".join(parts) + "\n")
+		written_split_genes.add(new_gene_id)
 
 	with open(output_gff, "w") as out:
 		for kind, obj in records:
@@ -335,25 +355,9 @@ def write_repaired_gff(
 				old_gene_id = attrs.get("ID")
 
 				if old_gene_id in split_gene_ids:
-					old_gene = genes[old_gene_id]
-
-					for new_gene_id in old_gene_to_new_genes[old_gene_id]:
-						span = gene_spans[new_gene_id]
-
-						new_attrs = dict(old_gene["attrs"])
-						new_attrs["ID"] = new_gene_id
-						new_attrs["Name"] = new_gene_id
-						new_attrs["Original_ID"] = old_gene_id
-
-						parts = list(old_gene["parts"])
-						parts[0] = span["seqid"]
-						parts[3] = str(span["start"])
-						parts[4] = str(span["end"])
-						parts[6] = span["strand"]
-						parts[8] = format_attrs(new_attrs)
-
-						out.write("\t".join(parts) + "\n")
-
+					# Do not write all split gene records here.
+					# Each split gene is written immediately before the
+					# first transcript assigned to it.
 					continue
 
 				if old_gene_id in gene_spans:
@@ -378,6 +382,17 @@ def write_repaired_gff(
 
 					new_tx_id = span["new_tx_id"]
 					new_gene_id = span["gene_id"]
+
+					# If this transcript belongs to a split gene, write that
+					# split gene immediately before the first transcript for it.
+					if old_tx_id in old_tx_to_new_gene:
+						old_gene_id = feat["attrs"].get("Parent", "")
+
+						if (
+							new_gene_id not in written_split_genes
+							and old_gene_id in genes
+						):
+							write_split_gene(out, old_gene_id, new_gene_id)
 
 					if old_tx_id in old_tx_to_new_tx:
 						attrs["Original_ID"] = old_tx_id
@@ -427,8 +442,12 @@ def write_repaired_gff(
 						attrs["Original_ID"] = old_feature_id
 
 						for old_tx_id, new_tx_id in old_tx_to_new_tx.items():
-							if old_feature_id.startswith(old_tx_id):
-								attrs["ID"] = old_feature_id.replace(old_tx_id, new_tx_id, 1)
+							if old_tx_id in old_feature_id:
+								attrs["ID"] = old_feature_id.replace(
+									old_tx_id,
+									new_tx_id,
+									1,
+								)
 								break
 
 					parts = list(feat["parts"])
@@ -517,3 +536,23 @@ def main():
 
 if __name__ == "__main__":
 	main()
+
+example_results = """
+Reading GFF from Hcv1av93.gff
+Found 14591 genes and 20076 transcripts
+Reading false fusions table from Hcv1av93_proposed_clusters.tsv
+Found 7 fusion candidate genes
+Reading motif matches table from Hcv1av93_splits_summary.tsv
+Found 598 motifs, and 499 flagged for removal
+Wrote repaired GFF: Hcv1av93.leader_removed.gff
+Wrote repair summary: Hcv1av93.leader_removed.repair_summary.tsv
+
+Reading GFF from Hcv1av93_v10.gff
+Found 14619 genes and 19660 transcripts
+Reading false fusions table from Hcv1av93_v10_proposed_clusters.tsv
+Found 7 fusion candidate genes
+Reading motif matches table from Hcv1av93_v10_splits_summary.tsv
+Found 601 motifs, and 501 flagged for removal
+Wrote repaired GFF: Hcv1av93_v10.leader_removed.gff
+Wrote repair summary: Hcv1av93_v10.leader_removed.repair_summary.tsv
+"""
