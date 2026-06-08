@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # created by WRF 2025-12-02
+# v1.3 2026-06-02 check for isoseq adapters
 # v1.2 2026-05-25 added optional motif trimming mode
 # v1.1 2026-05-05 gzip output
 
-"""retain_transcripts_w_leader_motif.py v1.2  last modified 2026-05-25
+"""retain_transcripts_w_leader_motif.py v1.3  last modified 2026-06-02
 
   Filter a FASTA file by motifs at the start of each sequence.
 
@@ -30,13 +31,6 @@ import argparse
 import gzip
 from collections import defaultdict
 from Bio import SeqIO
-
-
-def open_maybe_gzip(filename, mode="rt"):
-	"""Open plain text or gzip-compressed files by filename suffix."""
-	if filename.endswith(".gz"):
-		return gzip.open(filename, mode)
-	return open(filename, mode)
 
 
 def main():
@@ -69,24 +63,43 @@ def main():
 	seqcount = 0
 	retained_count = defaultdict(int)
 
+
+	if args.trim_motif:
+		sys.stderr.write( "# Trimming matched leader motifs before output: {}\n".format( args.trim_motif ) )
+
+	adapter_sequences = { "PacBio_bc1004_5p__NEB_5p" : "CACGCACACACGCGCGGCAATGAAGTCGCAGGGTTGGG",
+                          "NEB_5p__IsoSeq_5p_primer" : "GCAATGAAGTCGCAGGGTTGGG" }
+	adapter_counts = defaultdict(int)
+
+	# check and assign gzip open if needed
 	if args.output.endswith(".gz"): # determine gzip output, can be much slower
 		open_output = gzip.open(args.output, "wt")  # text mode
 		sys.stderr.write( "# Writing output to {} as gzip\n".format( args.output ) )
 	else:
 		open_output = open(args.output, "w")
 		sys.stderr.write( "# Writing output to {}\n".format( args.output ) )
-
-	if args.trim_motif:
-		sys.stderr.write( "# Trimming matched leader motifs before output: {}\n".format( args.trim_motif ) )
-
 	with open_output as fout:
-		# Parse records with SeqIO
-		sys.stderr.write( "# Reading sequences from {}  {}\n".format( args.input, time.asctime() ) )
-		with open_maybe_gzip(args.input, 'rt') as input_handler:
-			for seq_record in SeqIO.parse(input_handler, "fasta"):
+		if args.input.endswith(".gz"): # determine gzip input, can be much slower
+			open_input = gzip.open(args.input, "rt")  # text mode
+			sys.stderr.write( "# Reading sequences from {} as gzip  {}\n".format( args.input, time.asctime() ) )
+			open_input = open(args.input, "rt")
+			sys.stderr.write( "# Reading sequences from {}  {}\n".format( args.input, time.asctime() ) )
+		with open_input as input_handler:
+			for seq_record in SeqIO.parse(input_handler, "fasta"): # Parse records with SeqIO
 				seqcount += 1
-				seq_str = str(seq_record.seq)
-				seq_u = seq_str.upper()
+				seq_u = str(seq_record.seq).upper()
+
+				matching_adapters = []
+				for adapter_id, adapter_seq in adapter_sequences.items():
+					if seq_u.startswith(adapter_seq):
+						 matching_adapters.append( (adapter_id, adapter_seq) )
+				if matching_adapters:
+					adapter_id, adapter_seq = max(matching_adapters, key=lambda x: len(x[1]))
+					adapter_counts[adapter_id] += 1
+					trim_len = len(adapter_seq)
+					# refresh sequence after adapter trimming
+					seq_record = seq_record[trim_len:]
+					seq_u = str(seq_record.seq).upper()
 
 				matching_motifs = []
 				for motif_id, motif_seq in motif_items:
@@ -114,6 +127,8 @@ def main():
 	sys.stderr.write( "# Read sequences from {}, wrote {} ({:.2f}%)  {}\n".format( seqcount, written, pct, time.asctime() ) )
 	for k,v in retained_count.items():
 		print("{}\t{}\t{}".format( k,str(motifs.get(k).seq),v ), file=sys.stdout)
+	for k,v in adapter_counts.items():
+		print("{}\t{}\t{}".format( k,str(adapter_counts.get(k).seq),v ), file=sys.stdout)
 
 if __name__ == "__main__":
 	main()
